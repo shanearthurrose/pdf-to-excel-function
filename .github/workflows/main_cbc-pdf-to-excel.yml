@@ -74,4 +74,5 @@ jobs:
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4B3CC4E25C5843179049CE95B787A62D }}
           sku: 'flexconsumption'
+          remote-build: true
         
