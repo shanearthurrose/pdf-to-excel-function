@@ -1,0 +1,3 @@
+azure-functions
+pdfplumber
+openpyxl
