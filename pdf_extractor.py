@@ -346,6 +346,8 @@ def extract_items(pdf_path: str, debug: bool = False, showpages: bool = False) -
             'FFFE Code':                fffe_code,
             'FFFE Item':                raw['fffe_item'],
             'Source PDF':               Path(pdf_path).name,
+            # Matches costs.xlsx column E ("SOR Lookup"), e.g. 'RC-DEM-01'.
+            'SOR Lookup Key':           f"{header['Renovation FFFE Schedule']}-{sor_code}" if sor_code else '',
         })
 
     return items
@@ -384,12 +386,18 @@ def write_to_excel(items: list, output_path: str):
         'Work Request', 'Renovation Category', 'Renovation FFFE Schedule',
         'FFFE Scheme', 'Description', 'Quantity', 'Unit',
         'SOR Activity Code', 'FFFE Code', 'FFFE Item', 'Source PDF',
-        'Unit Price', 'Total Price',
+        'SOR Lookup Key',
+        'Sub-contractor COST ($)', 'Sub-contractor Total ($)',
+        'Anglicare Cost', 'Anglicare Total ($)',
+        'CBC Cost', 'CBC Total ($)',
+        'FINAL', 'FINAL Total ($)',
     ]
     col_widths = {
         'A': 18, 'B': 22, 'C': 26, 'D': 18,
         'E': 60, 'F': 12, 'G': 12, 'H': 20,
-        'I': 25, 'J': 30, 'K': 30, 'L': 14, 'M': 14,
+        'I': 25, 'J': 30, 'K': 30, 'L': 20,
+        'M': 20, 'N': 20, 'O': 18, 'P': 18,
+        'Q': 14, 'R': 16, 'S': 14, 'T': 16,
     }
 
     wb                          = Workbook()
