@@ -17,6 +17,7 @@ import pdfplumber
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
 # ── Regex patterns — header fields ───────────────────────────────────────────
@@ -383,11 +384,12 @@ def write_to_excel(items: list, output_path: str):
         'Work Request', 'Renovation Category', 'Renovation FFFE Schedule',
         'FFFE Scheme', 'Description', 'Quantity', 'Unit',
         'SOR Activity Code', 'FFFE Code', 'FFFE Item', 'Source PDF',
+        'Unit Price', 'Total Price',
     ]
     col_widths = {
         'A': 18, 'B': 22, 'C': 26, 'D': 18,
         'E': 60, 'F': 12, 'G': 12, 'H': 20,
-        'I': 25, 'J': 30, 'K': 30,
+        'I': 25, 'J': 30, 'K': 30, 'L': 14, 'M': 14,
     }
 
     wb                          = Workbook()
@@ -406,7 +408,24 @@ def write_to_excel(items: list, output_path: str):
 
     style_rows(ws, start_row=2)
     set_column_widths(ws, col_widths)
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
+
+    # Define a real Excel Table (not just a filtered range) so tools like
+    # Power Automate's Excel Online connector — which requires a genuine
+    # ListObject/Table to run "List rows" / "Add a row" / "Update a row" —
+    # can read and write this data.
+    last_row = ws.max_row
+    last_col_letter = get_column_letter(len(headers))
+    table_ref = f"A1:{last_col_letter}{last_row}"
+
+    table = Table(displayName="LineItems", ref=table_ref)
+    table.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium9",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+    ws.add_table(table)
 
     wb.save(output_path)
 
