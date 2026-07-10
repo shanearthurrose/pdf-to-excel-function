@@ -123,8 +123,14 @@ def extract_items_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     for item in items:
-        item.setdefault("Unit Price", "")
-        item.setdefault("Total Price", "")
+        item.setdefault("Sub-contractor COST ($)", "")
+        item.setdefault("Sub-contractor Total ($)", "")
+        item.setdefault("Anglicare Cost", "")
+        item.setdefault("Anglicare Total ($)", "")
+        item.setdefault("CBC Cost", "")
+        item.setdefault("CBC Total ($)", "")
+        item.setdefault("FINAL", "")
+        item.setdefault("FINAL Total ($)", "")
 
     logging.info(f"Extracted {len(items)} line items from {filename}.")
 
