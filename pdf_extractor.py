@@ -310,17 +310,27 @@ def extract_items(pdf_path: str, debug: bool = False, showpages: bool = False) -
         else:
             i += 1
 
-    # ── FIX #1: Drop phantom "items" that are actually headers/property names ──
+    # ── FIX #1 + Location tracking ──────────────────────────────────────────────
     # A real item always carries at least one signal: a quantity, an FFFE Item
     # value, or a Required Parts marker (Non-SoR). Bold section/room headings
-    # (e.g. "Villa 1 - ... - Bedroom 1", "Room 57 - Warrah Wing - Ensuite",
-    # or leaked property-name text) never carry any of these, regardless of
-    # property name or room-naming convention, so this generalizes cleanly
+    # (e.g. "Room 57 - Warrah Wing - Ensuite") never carry any of these,
+    # regardless of property-naming convention, so this generalizes cleanly
     # without hardcoding any property-specific strings.
-    raw_items = [
-        r for r in raw_items
-        if r['is_non_sor'] or r['qty'] != '' or r['fffe_item'] != ''
-    ]
+    #
+    # Rather than just discarding those heading lines, track them as the
+    # current "location" and carry it forward onto every real item that
+    # follows, until the next heading changes it. Defaults to "Overall Unit
+    # Activities" for items appearing before any room-specific heading.
+    current_location = 'Overall Unit Activities'
+    located_items     = []
+    for r in raw_items:
+        is_real = r['is_non_sor'] or r['qty'] != '' or r['fffe_item'] != ''
+        if not is_real:
+            current_location = r['desc'].strip()
+            continue
+        r['location'] = current_location
+        located_items.append(r)
+    raw_items = located_items
 
     # ── Pair descriptions with right blocks, skipping Non-SoR items ───────────
     items     = []
@@ -335,6 +345,7 @@ def extract_items(pdf_path: str, debug: bool = False, showpages: bool = False) -
             block_idx += 1
 
         items.append({
+            'Location':                 raw['location'],
             'Work Request':             header['Work Request'],
             'Renovation Category':      header['Renovation Category'],
             'Renovation FFFE Schedule': header['Renovation FFFE Schedule'],
@@ -383,6 +394,7 @@ def set_column_widths(ws, col_widths: dict):
 
 def write_to_excel(items: list, output_path: str):
     headers = [
+        'Location',
         'Work Request', 'Renovation Category', 'Renovation FFFE Schedule',
         'FFFE Scheme', 'Description', 'Quantity', 'Unit',
         'SOR Activity Code', 'FFFE Code', 'FFFE Item', 'Source PDF',
@@ -393,11 +405,12 @@ def write_to_excel(items: list, output_path: str):
         'FINAL', 'FINAL Total ($)',
     ]
     col_widths = {
-        'A': 18, 'B': 22, 'C': 26, 'D': 18,
-        'E': 60, 'F': 12, 'G': 12, 'H': 20,
-        'I': 25, 'J': 30, 'K': 30, 'L': 20,
-        'M': 20, 'N': 20, 'O': 18, 'P': 18,
-        'Q': 14, 'R': 16, 'S': 14, 'T': 16,
+        'A': 26,
+        'B': 18, 'C': 22, 'D': 26, 'E': 18,
+        'F': 60, 'G': 12, 'H': 12, 'I': 20,
+        'J': 25, 'K': 30, 'L': 30, 'M': 20,
+        'N': 20, 'O': 20, 'P': 18, 'Q': 18,
+        'R': 14, 'S': 16, 'T': 14, 'U': 16,
     }
 
     wb                          = Workbook()
