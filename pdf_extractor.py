@@ -443,9 +443,34 @@ def add_grand_total_row(ws, headers: list, data_start_row: int, data_end_row: in
     return total_row
 
 
+def apply_currency_format(ws, headers: list, currency_columns: list, start_row: int, end_row: int):
+    """Coerce values in the given columns to real numbers (so Excel's math
+    and sort work correctly) and apply a $#,##0.00 display format. Formula
+    strings ('=SUM(...)') keep the format without conversion; non-numeric
+    text (e.g. 'quote required') is left as plain text untouched."""
+    fmt = '$#,##0.00'
+    for h in currency_columns:
+        if h not in headers:
+            continue
+        col_idx = headers.index(h) + 1
+        for row in range(start_row, end_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            val = cell.value
+            if val is None or val == '':
+                continue
+            if isinstance(val, str) and val.startswith('='):
+                cell.number_format = fmt
+                continue
+            try:
+                cell.value = float(val)
+                cell.number_format = fmt
+            except (TypeError, ValueError):
+                pass
+
+
 def write_sheet(wb, sheet_title: str, headers: list, col_widths: dict,
                  items: list, table_name: str, is_active: bool = False,
-                 grand_total_columns: list = None):
+                 grand_total_columns: list = None, currency_columns: list = None):
     ws = wb.create_sheet(title=sheet_title) if not is_active else wb.active
     ws.title = sheet_title
     ws.row_dimensions[1].height = 30
@@ -463,10 +488,18 @@ def write_sheet(wb, sheet_title: str, headers: list, col_widths: dict,
     set_column_widths(ws, col_widths)
     build_table(ws, len(headers), table_name)
 
+    data_end_row = 1 + len(items)
+    if currency_columns:
+        apply_currency_format(ws, headers, currency_columns,
+                               start_row=2, end_row=data_end_row)
+
     if grand_total_columns:
         add_grand_total_row(ws, headers, data_start_row=2,
-                            data_end_row=1 + len(items),
+                            data_end_row=data_end_row,
                             sum_columns=grand_total_columns)
+        if currency_columns:
+            apply_currency_format(ws, headers, currency_columns,
+                                   start_row=data_end_row + 1, end_row=data_end_row + 1)
 
     return ws
 
@@ -646,7 +679,8 @@ def write_to_excel(items: list, output_path: str):
                 grand_total_columns=[
                     'Quantity', 'Sub-contractor Total ($)',
                     'Anglicare Total ($)', 'CBC Total ($)', 'FINAL Total ($)',
-                ])
+                ],
+                currency_columns=['FINAL Total ($)'])
     write_sheet(wb, 'Subcontractor Copy', subcontractor_headers,
                 subcontractor_col_widths, items,
                 table_name='SubcontractorView')
