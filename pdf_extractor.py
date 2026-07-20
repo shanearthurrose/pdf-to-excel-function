@@ -411,8 +411,41 @@ def build_table(ws, num_cols: int, table_name: str):
     ws.add_table(table)
 
 
+def add_grand_total_row(ws, headers: list, data_start_row: int, data_end_row: int,
+                         sum_columns: list):
+    """Append a bold, highlighted Grand Total row directly below the data
+    (outside the Table's own range, so the Table stays just the data), with
+    live SUM formulas for the given numeric columns."""
+    total_row  = data_end_row + 1
+    fill       = PatternFill('solid', start_color='FFD966')
+    bold_font  = Font(bold=True, name='Arial', size=10)
+    top_border = Border(top=Side(style='medium', color='000000'))
+
+    first_sum_col_idx = min(headers.index(h) + 1 for h in sum_columns)
+    if first_sum_col_idx > 1:
+        ws.merge_cells(start_row=total_row, start_column=1,
+                        end_row=total_row, end_column=first_sum_col_idx - 1)
+    label_cell = ws.cell(row=total_row, column=1, value='GRAND TOTAL')
+    label_cell.alignment = Alignment(horizontal='right', vertical='center')
+
+    for h in sum_columns:
+        col_idx    = headers.index(h) + 1
+        col_letter = get_column_letter(col_idx)
+        ws.cell(row=total_row, column=col_idx,
+                value=f"=SUM({col_letter}{data_start_row}:{col_letter}{data_end_row})")
+
+    for col_idx in range(1, len(headers) + 1):
+        c = ws.cell(row=total_row, column=col_idx)
+        c.fill   = fill
+        c.font   = bold_font
+        c.border = top_border
+
+    return total_row
+
+
 def write_sheet(wb, sheet_title: str, headers: list, col_widths: dict,
-                 items: list, table_name: str, is_active: bool = False):
+                 items: list, table_name: str, is_active: bool = False,
+                 grand_total_columns: list = None):
     ws = wb.create_sheet(title=sheet_title) if not is_active else wb.active
     ws.title = sheet_title
     ws.row_dimensions[1].height = 30
@@ -429,6 +462,12 @@ def write_sheet(wb, sheet_title: str, headers: list, col_widths: dict,
     style_rows(ws, start_row=2)
     set_column_widths(ws, col_widths)
     build_table(ws, len(headers), table_name)
+
+    if grand_total_columns:
+        add_grand_total_row(ws, headers, data_start_row=2,
+                            data_end_row=1 + len(items),
+                            sum_columns=grand_total_columns)
+
     return ws
 
 
@@ -603,7 +642,11 @@ def write_to_excel(items: list, output_path: str):
 
     wb = Workbook()
     write_sheet(wb, 'Extracted Data', headers, col_widths, items,
-                table_name='LineItems', is_active=True)
+                table_name='LineItems', is_active=True,
+                grand_total_columns=[
+                    'Quantity', 'Sub-contractor Total ($)',
+                    'Anglicare Total ($)', 'CBC Total ($)', 'FINAL Total ($)',
+                ])
     write_sheet(wb, 'Subcontractor Copy', subcontractor_headers,
                 subcontractor_col_widths, items,
                 table_name='SubcontractorView')
