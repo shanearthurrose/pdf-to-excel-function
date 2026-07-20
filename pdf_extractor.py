@@ -432,6 +432,44 @@ def write_sheet(wb, sheet_title: str, headers: list, col_widths: dict,
     return ws
 
 
+def write_validation_sheet(wb, sheet_title: str, headers: list, col_widths: dict,
+                            items: list, table_name: str):
+    """
+    Same shape as write_sheet, except 'CBC Qty' is always left blank (to be
+    filled in by hand later) and 'CBC Qty Total ($)' is written as a live
+    Excel formula (FINAL * CBC Qty for that row), so it recalculates
+    automatically once someone fills in CBC Qty - rather than a fixed value
+    computed once at generation time.
+    """
+    ws = wb.create_sheet(title=sheet_title)
+    ws.row_dimensions[1].height = 30
+
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=h)
+    style_header_row(ws)
+    ws.freeze_panes = 'A2'
+
+    cbc_qty_col   = get_column_letter(headers.index('CBC Qty') + 1)
+    final_col     = get_column_letter(headers.index('FINAL') + 1)
+    cbc_total_idx = headers.index('CBC Qty Total ($)') + 1
+
+    for row_offset, item in enumerate(items):
+        row = row_offset + 2
+        for col_idx, h in enumerate(headers, start=1):
+            if h == 'CBC Qty':
+                continue  # left blank - filled in by hand later
+            elif h == 'CBC Qty Total ($)':
+                ws.cell(row=row, column=col_idx,
+                        value=f"={final_col}{row}*{cbc_qty_col}{row}")
+            else:
+                ws.cell(row=row, column=col_idx, value=item.get(h, ''))
+
+    style_rows(ws, start_row=2)
+    set_column_widths(ws, col_widths)
+    build_table(ws, len(headers), table_name)
+    return ws
+
+
 def write_grouped_sheet(wb, sheet_title: str, headers: list, col_widths: dict, items: list):
     """
     Same columns as a normal sheet, but rows are grouped by the first 3
@@ -539,6 +577,30 @@ def write_to_excel(items: list, output_path: str):
         new_item['Combined Reference'] = combined
         grouped_items.append(new_item)
 
+    # Name -> width lookup (built once from the original letter-keyed dict),
+    # so new sheets with rearranged columns can look up widths by header name
+    # instead of recomputing letters by hand.
+    name_to_width = {h: col_widths[get_column_letter(i + 1)] for i, h in enumerate(headers)}
+    name_to_width['CBC Qty']            = 12
+    name_to_width['CBC Qty Total ($)']  = 18
+    name_to_width['Combined Reference'] = 70
+
+    # Fourth tab "Validation": same as tab 1, minus Sub-contractor COST/Total,
+    # with 'CBC Qty' inserted right after Quantity (blank - filled in by hand
+    # later) and 'CBC Qty Total ($)' added as the last column, as a live
+    # formula (= FINAL * CBC Qty) so it recalculates once CBC Qty is filled in.
+    validation_base = [h for h in headers
+                        if h not in ('Sub-contractor COST ($)', 'Sub-contractor Total ($)')]
+    qty_idx = validation_base.index('Quantity')
+    validation_headers = (
+        validation_base[:qty_idx + 1] + ['CBC Qty'] + validation_base[qty_idx + 1:]
+        + ['CBC Qty Total ($)']
+    )
+    validation_col_widths = {
+        get_column_letter(i + 1): name_to_width.get(h, 15)
+        for i, h in enumerate(validation_headers)
+    }
+
     wb = Workbook()
     write_sheet(wb, 'Extracted Data', headers, col_widths, items,
                 table_name='LineItems', is_active=True)
@@ -547,6 +609,9 @@ def write_to_excel(items: list, output_path: str):
                 table_name='SubcontractorView')
     write_grouped_sheet(wb, 'Grouped by SOR', grouped_headers,
                         grouped_col_widths, grouped_items)
+    write_validation_sheet(wb, 'Validation', validation_headers,
+                           validation_col_widths, items,
+                           table_name='ValidationData')
 
     wb.save(output_path)
 
