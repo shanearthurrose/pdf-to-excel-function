@@ -392,6 +392,111 @@ def set_column_widths(ws, col_widths: dict):
         ws.column_dimensions[col_letter].width = width
 
 
+def build_table(ws, num_cols: int, table_name: str):
+    """Add a real Excel Table (ListObject) covering the sheet's data, so
+    tools like Power Automate's Excel Online connector can run 'List rows' /
+    'Update a row' against it."""
+    last_row = ws.max_row
+    last_col_letter = get_column_letter(num_cols)
+    table_ref = f"A1:{last_col_letter}{last_row}"
+
+    table = Table(displayName=table_name, ref=table_ref)
+    table.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium9",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+    ws.add_table(table)
+
+
+def write_sheet(wb, sheet_title: str, headers: list, col_widths: dict,
+                 items: list, table_name: str, is_active: bool = False):
+    ws = wb.create_sheet(title=sheet_title) if not is_active else wb.active
+    ws.title = sheet_title
+    ws.row_dimensions[1].height = 30
+
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=h)
+
+    style_header_row(ws)
+    ws.freeze_panes = 'A2'
+
+    for item in items:
+        ws.append([item.get(h, '') for h in headers])
+
+    style_rows(ws, start_row=2)
+    set_column_widths(ws, col_widths)
+    build_table(ws, len(headers), table_name)
+    return ws
+
+
+def write_grouped_sheet(wb, sheet_title: str, headers: list, col_widths: dict, items: list):
+    """
+    Same columns as a normal sheet, but rows are grouped by the first 3
+    characters of 'SOR Activity Code' (e.g. 'DEM', 'PAT', 'FLT'). Items with
+    no/short SOR code (Non-SoR activities) are grouped under 'OTHER'.
+
+    Each group gets a bold, merged section-header row, followed by its item
+    rows. Item rows carry an Excel outline level so Excel's native +/-
+    row-grouping controls can collapse/expand each group; the header row
+    itself is the summary row (outlinePr.summaryBelow = False puts the
+    collapse control at the header, not below the detail rows).
+
+    Not turned into an Excel Table, since Tables require one contiguous
+    header row immediately followed by data — the repeated group-header rows
+    here don't fit that shape. This is a human-readable grouped view, not a
+    machine-queried one.
+    """
+    ws = wb.create_sheet(title=sheet_title)
+    ws.row_dimensions[1].height = 30
+
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=h)
+    style_header_row(ws)
+    ws.freeze_panes = 'A2'
+
+    # Group items by first 3 chars of SOR Activity Code (upper), 'OTHER' for
+    # blank/short codes (e.g. Non-SoR activities).
+    groups = defaultdict(list)
+    for item in items:
+        code = (item.get('SOR Activity Code') or '').strip().upper()
+        prefix = code[:3] if len(code) >= 3 else 'OTHER'
+        groups[prefix].append(item)
+
+    last_col_letter = get_column_letter(len(headers))
+    group_fill = PatternFill('solid', start_color='B8CCE4')
+    group_font = Font(bold=True, name='Arial', size=10)
+
+    row_idx = 2
+    for prefix in sorted(groups.keys()):
+        group_items = groups[prefix]
+
+        ws.cell(row=row_idx, column=1, value=f"{prefix} ({len(group_items)} item{'s' if len(group_items) != 1 else ''})")
+        ws.merge_cells(f"A{row_idx}:{last_col_letter}{row_idx}")
+        header_cell = ws.cell(row=row_idx, column=1)
+        header_cell.fill = group_fill
+        header_cell.font = group_font
+        header_cell.alignment = Alignment(horizontal='left', vertical='center')
+        ws.row_dimensions[row_idx].outlineLevel = 0
+        row_idx += 1
+
+        for item in group_items:
+            for col_idx, h in enumerate(headers, start=1):
+                ws.cell(row=row_idx, column=col_idx, value=item.get(h, ''))
+            ws.row_dimensions[row_idx].outlineLevel = 1
+            row_idx += 1
+
+    style_rows(ws, start_row=2)
+    set_column_widths(ws, col_widths)
+
+    # Collapse control sits on the group-header row (summary above detail),
+    # matching this layout (header row, then its items below).
+    ws.sheet_properties.outlinePr.summaryBelow = False
+    return ws
+
+
 def write_to_excel(items: list, output_path: str):
     headers = [
         'Location',
@@ -413,40 +518,35 @@ def write_to_excel(items: list, output_path: str):
         'R': 14, 'S': 16, 'T': 14, 'U': 16,
     }
 
-    wb                          = Workbook()
-    ws                          = wb.active
-    ws.title                    = 'Extracted Data'
-    ws.row_dimensions[1].height = 30
+    # Second/third tab: columns A-O only (Location through Sub-contractor
+    # Total), excluding the Anglicare/CBC/FINAL cost columns.
+    subcontractor_headers    = headers[:15]
+    subcontractor_col_widths = {k: v for k, v in col_widths.items() if k in
+                                 ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+                                  'I', 'J', 'K', 'L', 'M', 'N', 'O']}
 
-    for col_idx, h in enumerate(headers, start=1):
-        ws.cell(row=1, column=col_idx, value=h)
+    # Third tab: same as the second, plus one extra column concatenating
+    # columns A-M (Location through SOR Lookup Key) separated by ' / '.
+    combined_source_headers = headers[:13]  # A-M: Location .. SOR Lookup Key
+    grouped_headers         = subcontractor_headers + ['Combined Reference']
+    grouped_col_widths      = dict(subcontractor_col_widths)
+    grouped_col_widths['P'] = 70
 
-    style_header_row(ws)
-    ws.freeze_panes = 'A2'
-
+    grouped_items = []
     for item in items:
-        ws.append([item.get(h, '') for h in headers])
+        combined = ' / '.join(str(item.get(h, '')) for h in combined_source_headers)
+        new_item = dict(item)
+        new_item['Combined Reference'] = combined
+        grouped_items.append(new_item)
 
-    style_rows(ws, start_row=2)
-    set_column_widths(ws, col_widths)
-
-    # Define a real Excel Table (not just a filtered range) so tools like
-    # Power Automate's Excel Online connector — which requires a genuine
-    # ListObject/Table to run "List rows" / "Add a row" / "Update a row" —
-    # can read and write this data.
-    last_row = ws.max_row
-    last_col_letter = get_column_letter(len(headers))
-    table_ref = f"A1:{last_col_letter}{last_row}"
-
-    table = Table(displayName="LineItems", ref=table_ref)
-    table.tableStyleInfo = TableStyleInfo(
-        name="TableStyleMedium9",
-        showFirstColumn=False,
-        showLastColumn=False,
-        showRowStripes=True,
-        showColumnStripes=False,
-    )
-    ws.add_table(table)
+    wb = Workbook()
+    write_sheet(wb, 'Extracted Data', headers, col_widths, items,
+                table_name='LineItems', is_active=True)
+    write_sheet(wb, 'Subcontractor Copy', subcontractor_headers,
+                subcontractor_col_widths, items,
+                table_name='SubcontractorView')
+    write_grouped_sheet(wb, 'Grouped by SOR', grouped_headers,
+                        grouped_col_widths, grouped_items)
 
     wb.save(output_path)
 
