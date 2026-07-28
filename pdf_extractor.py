@@ -539,6 +539,58 @@ def write_validation_sheet(wb, sheet_title: str, headers: list, col_widths: dict
     style_rows(ws, start_row=2)
     set_column_widths(ws, col_widths)
     build_table(ws, len(headers), table_name)
+
+    # ── Totals box ───────────────────────────────────────────────────────────
+    # Fixed SOR / Non Fixed SOR are split by whether SOR Activity Code is
+    # populated, summing CBC Qty Total ($) - which itself only produces real
+    # numbers once someone fills in CBC Qty by hand. That's deliberate: this
+    # whole box is designed to recalculate live as CBC Qty gets populated,
+    # not to show a snapshot computed at generation time.
+    data_start_row = 2
+    data_end_row   = 1 + len(items)
+    sor_col        = get_column_letter(headers.index('SOR Activity Code') + 1)
+    cbc_total_col  = get_column_letter(cbc_total_idx)
+    sor_range      = f"{sor_col}{data_start_row}:{sor_col}{data_end_row}"
+    cbc_total_range = f"{cbc_total_col}{data_start_row}:{cbc_total_col}{data_end_row}"
+
+    box_start_row     = data_end_row + 2  # one blank row gap below the table
+    fixed_sor_row     = box_start_row
+    non_fixed_sor_row = box_start_row + 1
+    variation_row     = box_start_row + 2
+    mgmt_fee_row      = box_start_row + 3
+    grand_total_row   = box_start_row + 4
+
+    bold_font    = Font(bold=True, name='Arial', size=10)
+    label_font   = Font(name='Arial', size=10)
+    grand_fill   = PatternFill('solid', start_color='FFD966')
+    top_border   = Border(top=Side(style='medium', color='000000'))
+    currency_fmt = '$#,##0.00'
+
+    box_rows = [
+        (fixed_sor_row,     'Fixed SOR',              f'=SUMIF({sor_range},"<>",{cbc_total_range})'),
+        (non_fixed_sor_row, 'Non Fixed SOR',          f'=SUMIF({sor_range},"",{cbc_total_range})'),
+        (variation_row,     'Variation (manual)',     None),  # left blank for manual entry
+        (mgmt_fee_row,      'Management Fee (4.3%)',
+         f'=4.3%*(B{fixed_sor_row}+B{non_fixed_sor_row}+B{variation_row})'),
+        (grand_total_row,   'GRAND TOTAL',
+         f'=B{fixed_sor_row}+B{non_fixed_sor_row}+B{variation_row}+B{mgmt_fee_row}'),
+    ]
+
+    for row, label, formula in box_rows:
+        is_grand = (row == grand_total_row)
+        label_cell = ws.cell(row=row, column=1, value=label)
+        label_cell.font = bold_font if is_grand else label_font
+
+        value_cell = ws.cell(row=row, column=2, value=formula)
+        value_cell.number_format = currency_fmt
+        value_cell.font = bold_font if is_grand else label_font
+
+        if is_grand:
+            for col_idx in (1, 2):
+                c = ws.cell(row=row, column=col_idx)
+                c.fill   = grand_fill
+                c.border = top_border
+
     return ws
 
 
