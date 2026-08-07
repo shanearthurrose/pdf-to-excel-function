@@ -37,10 +37,18 @@ RE_FFFE_ITEM_BLANK  = re.compile(r'^FFFE Item[:\s]*$',   re.IGNORECASE)
 RE_SKIP = re.compile(
     r'^(SOR Activity Code|FFFE Code|FFFE Item|Quantity|Required Parts|'
     r'Non-SoR Activities|Renovation Trade|Renovation –|Renovation Activity|'
-    r'Page \d|Villa \d|Oran Park|Anglicare|Scope prepared|Overall Unit|'
+    r'Page \d|Oran Park|Anglicare|Scope prepared|Overall Unit|'
     r'Renovation Category|Renovation FFFE|FFFE Scheme)',
     re.IGNORECASE
 )
+
+# The repeated page-footer property/street line ("Villa 4 - Tulipwood Avenue")
+# has exactly one ' - ' segment. Real room/location headings extend that same
+# base with an extra segment ("Villa 4 - Tulipwood Avenue - Undercover"), so
+# this only matches (and skips) the bare property line, letting genuine
+# location headings fall through to be tagged as 'description' and picked up
+# by the location-tracking logic below.
+RE_SKIP_PROPERTY_LINE = re.compile(r'^Villa\s+\d+\s*-\s*[^-]+$', re.IGNORECASE)
 
 PAGE_HEIGHT = 1000
 
@@ -227,12 +235,31 @@ def extract_items(pdf_path: str, debug: bool = False, showpages: bool = False) -
             tagged.append((doc_top, m.group(1).strip(), all_bold, 'fffe_item_value'))
         elif RE_FFFE_ITEM_BLANK.match(text):
             tagged.append((doc_top, text, all_bold, 'fffe_item_label'))
-        elif RE_SKIP.match(text):
+        elif RE_SKIP.match(text) or RE_SKIP_PROPERTY_LINE.match(text):
             tagged.append((doc_top, text, all_bold, 'meta'))
         elif all_bold:
             tagged.append((doc_top, text, all_bold, 'description'))
         else:
             tagged.append((doc_top, text, all_bold, 'value'))
+
+    if debug:
+        print('\n=== TAGGED LEFT COLUMN LINES (pre-merge) ===')
+        for doc_top, text, bold, role in tagged:
+            print(f'  {doc_top:8.1f} [{role:20s}] {"[B]" if bold else "   "} {text}')
+
+    # A description that wraps across 2+ lines in the PDF produces multiple
+    # separate bold lines with no other tag in between. Merge consecutive
+    # 'description'-tagged entries into one continued description - otherwise
+    # the first fragment alone (with no qty/fffe/required-parts signal before
+    # the wrap continues) gets misread as a location-heading phantom.
+    merged_tagged = []
+    for entry in tagged:
+        if merged_tagged and entry[3] == 'description' and merged_tagged[-1][3] == 'description':
+            prev_top, prev_text, prev_bold, _ = merged_tagged[-1]
+            merged_tagged[-1] = (prev_top, f"{prev_text} {entry[1]}", prev_bold, 'description')
+        else:
+            merged_tagged.append(entry)
+    tagged = merged_tagged
 
     if debug:
         print('\n=== TAGGED LEFT COLUMN LINES ===')
