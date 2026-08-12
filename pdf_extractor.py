@@ -57,15 +57,27 @@ def is_bold(fontname: str) -> bool:
     return bool(re.search(r'bold|black|heavy|semibold', fontname, re.IGNORECASE))
 
 
+# Some documents show 'Stop-Sell' as the Renovation FFFE Schedule instead of
+# a real schedule code (e.g. 'SC', 'RC'). That's not usable as-is for the SOR
+# Lookup Key concatenation, so map it to a real code.
+FFFE_SCHEDULE_OVERRIDES = {
+    'stop-sell': 'SC-C',
+}
+
+
 def extract_header(full_text: str) -> dict:
     work_request = RE_WORK_REQUEST.search(full_text)
     category     = RE_CATEGORY.search(full_text)
     schedule     = RE_SCHEDULE.search(full_text)
     scheme       = RE_SCHEME.search(full_text)
+
+    schedule_value = schedule.group(1).strip() if schedule else ''
+    schedule_value = FFFE_SCHEDULE_OVERRIDES.get(schedule_value.lower(), schedule_value)
+
     return {
         'Work Request':             work_request.group(1).strip() if work_request else '',
         'Renovation Category':      category.group(1).strip()     if category     else '',
-        'Renovation FFFE Schedule': schedule.group(1).strip()     if schedule     else '',
+        'Renovation FFFE Schedule': schedule_value,
         'FFFE Scheme':              scheme.group(1).strip()       if scheme       else '',
     }
 
